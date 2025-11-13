@@ -34,6 +34,19 @@ SMALL_DATA_SAMPLE: int = 10000
 
 
 class OfflineIVF:
+    @staticmethod
+    def _resolve_path(preferred_path, *alternatives):
+        if os.path.exists(preferred_path):
+            return preferred_path
+        for candidate in alternatives:
+            if os.path.exists(candidate):
+                logging.info(
+                    f"falling back to existing index path {candidate} "
+                    f"instead of preferred {preferred_path}"
+                )
+                return candidate
+        return preferred_path
+
     def __init__(self, cfg, args, nprobe, index_factory_str):
         self.input_d = cfg["d"]
         self.dt = cfg["datasets"][args.xb]["files"][0]["dtype"]
@@ -43,9 +56,12 @@ class OfflineIVF:
         self.index_factory = index_factory_str
         assert self.index_factory is not None
         self.index_factory_fn = self.index_factory.replace(",", "_")
-        self.index_template_file = (
-            f"{output_dir}/{args.xb}/{self.index_factory_fn}.empty.faissindex"
+        self.index_template_file = self._resolve_path(
+            f"{output_dir}/{args.xb}/{self.index_factory_fn}.empty.faissindex",
+            f"{output_dir}/{args.xb}/{self.index_factory_fn}.empty.index",
         )
+        if hasattr(args, "index_template_file") and args.index_template_file:
+            self.index_template_file = args.index_template_file
         logging.info(f"index template: {self.index_template_file}")
 
         if not args.xq:
@@ -79,12 +95,18 @@ class OfflineIVF:
         self.xq_index_shard_prefix = (
             f"{xq_output_dir}/{self.index_factory_fn}.shard_"
         )
-        self.index_file = (  # TODO: added back temporarily for evaluate, handle name of non-sharded index file and remove.
-            f"{xb_output_dir}/{self.index_factory_fn}.faissindex"
+        self.index_file = self._resolve_path(
+            f"{xb_output_dir}/{self.index_factory_fn}.faissindex",
+            f"{xb_output_dir}/{self.index_factory_fn}.index",
+        )  # TODO: added back temporarily for evaluate, handle name of non-sharded index file and remove.
+        if hasattr(args, "index_file") and args.index_file:
+            self.index_file = args.index_file
+        self.xq_index_file = self._resolve_path(
+            f"{xq_output_dir}/{self.index_factory_fn}.faissindex",
+            f"{xq_output_dir}/{self.index_factory_fn}.index",
         )
-        self.xq_index_file = (
-            f"{xq_output_dir}/{self.index_factory_fn}.faissindex"
-        )
+        if hasattr(args, "xq_index_file") and args.xq_index_file:
+            self.xq_index_file = args.xq_index_file
         self.training_sample = cfg["training_sample"]
         self.evaluation_sample = cfg["evaluation_sample"]
         self.xq_ds = create_dataset_from_oivf_config(cfg, args.xq)

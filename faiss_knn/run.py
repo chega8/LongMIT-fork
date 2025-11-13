@@ -211,6 +211,24 @@ if __name__ == "__main__":
 
     add_group_args(group, "--xb", required=True, help="database vectors")
     add_group_args(group, "--xq", help="query vectors")
+    add_group_args(
+        group,
+        "--index-template-file",
+        type=str,
+        help="path to a pre-trained FAISS template index to reuse",
+    )
+    add_group_args(
+        group,
+        "--index-file",
+        type=str,
+        help="path to an existing FAISS index file to reuse",
+    )
+    add_group_args(
+        group,
+        "--xq-index-file",
+        type=str,
+        help="path to an existing FAISS index file for the query dataset",
+    )
 
     args = parser.parse_args()
     print("args:", args)
