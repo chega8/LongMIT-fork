@@ -3,6 +3,7 @@ sys.path.append(os.getcwd())
 sys.path.append(os.getcwd()+'/InternEmbedding')
 
 import json
+import logging
 import random
 import glob
 import math
@@ -10,11 +11,19 @@ import time
 import torch
 import numpy as np
 import multiprocessing as mp
-from InternEmbedding.embedding.eval.metrics import matrix_cosine_similarity
+from InternEmbedding.embedding.eval.metrics import cosine_similarity
 from InternEmbedding.embedding.train.training_embedder import initial_model
-from InternEmbedding.embedding.eval.mteb_eval_wrapper import EvaluatedEmbedder
 
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
+# logger
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 # mp.set_start_method('spawn')
 
 import yaml
@@ -33,10 +42,12 @@ def initial_embedder(args):
     embedder, tokenizer = initial_model(args)
     embedder = embedder.to(args.device)
     if args.embedder_ckpt_path and os.path.exists(args.embedder_ckpt_path):
+        logger.info(f"Loading embedder checkpoint from {args.embedder_ckpt_path}")
         embedder.load_state_dict(torch.load(args.embedder_ckpt_path))
 
     embedder.eval()
 
+    logger.info(f"Embedder initialized: name={args.embedder_name}, device={args.device}, max_length={args.max_length}")
     evaluated_embedder = EvaluatedEmbedder(embedder, tokenizer, args.max_length, args.device)
 
     return evaluated_embedder
@@ -46,7 +57,7 @@ def distribute_initial_embedder(config, device_id):
     device = f'cuda:{device_id}'
     config.device = device
 
-    print(f'>>> Embedder has loaded in {device} successfully!')
+    logger.info(f'Embedder loaded on device {device}')
 
     return initial_embedder(config)
 
@@ -82,7 +93,7 @@ def generate_faiss_config(embed_path: str, dim: int, dt: np.dtype):
     cfg["d"] = dim
     cfg["files"] = files
 
-    print(yaml.dump(cfg))
+    logger.info(f"Generated FAISS cfg for root={embed_path}, d={dim}, files={len(files)}, size={size}")
     with open('doc_process/config/faiss/template.yaml', 'w') as fw:
         fw.write(yaml.dump(cfg))
 
@@ -90,6 +101,7 @@ def generate_faiss_config(embed_path: str, dim: int, dt: np.dtype):
 def embedding_documents(args):
     embedder_conf, data_conf, process_id = args
 
+    logger.info(f"[P{process_id}] Initializing embedder for embeddings")
     embedder = distribute_initial_embedder(embedder_conf, process_id)
     encode_batch_size = embedder_conf.encode_batch_size
     embed_dim = embedder_conf.mytryoshka_size
@@ -100,10 +112,12 @@ def embedding_documents(args):
     embed_path = os.path.join(output_dir, domain, embedder_name)
     if not os.path.exists(embed_path):
         os.makedirs(embed_path)
+    logger.info(f"[P{process_id}] Output path: {embed_path}")
 
     doc_files = glob.glob(f'{data_conf.input_dir}/{data_conf.doc_glob}')
     random.seed(process_id)
     random.shuffle(doc_files)
+    logger.info(f"[P{process_id}] Found {len(doc_files)} source files matching pattern {data_conf.doc_glob}")
 
     for doc_file in doc_files:
         doc_name = doc_file.split('/')[-1].split('.')[0]
@@ -113,15 +127,17 @@ def embedding_documents(args):
         doc_ids = []
 
         if doc_embed_file in glob.glob(f'{embed_path}/*.npy'):
+            logger.info(f"[P{process_id}] Skip existing embeddings: {doc_embed_file}")
             continue
 
         with read_jsonl_file(doc_file) as doc_reader:
 
             result = subprocess.run(['wc', '-l', doc_file], capture_output=True, text=True)
             num_docs = int(result.stdout.split()[0])
-            print(f"File {doc_file} has {num_docs} lines.")
+            logger.info(f"[P{process_id}] Start embedding file: {doc_file} (lines={num_docs}) -> {doc_embed_file}")
 
             with memmap(doc_embed_file, np.float32, 'w+', shape=(num_docs, embed_dim)) as embeds:
+                t_start = time.time()
                 for di, doc in tqdm(enumerate(doc_reader)):
                     doc_batch.append(doc['content'])
                     doc_ids.append(di)
@@ -130,11 +146,15 @@ def embedding_documents(args):
                         if len(doc_batch) == 0:
                             break
 
+                        b_st = time.time()
                         batch_embed = embedder.batch_encode(doc_batch, batch_size=encode_batch_size)
+                        b_et = time.time()
                         embeds[doc_ids] = batch_embed
+                        logger.info(f"[P{process_id}] Wrote batch embeddings: count={len(doc_ids)} dim={embed_dim} time_encode={b_et-b_st:.3f}s")
 
                         doc_batch = []
                         doc_ids = []
+                logger.info(f"[P{process_id}] Finished file: {doc_file} in {time.time()-t_start:.3f}s")
                 
     # generate_faiss_config(output_dir, embed_dim, np.dtype(np.float32))
 
@@ -150,11 +170,13 @@ def distribute_embedding_documents_in_jsonl(config_path: str, num_process_nodes:
         for _ in tqdm(pool.imap(embedding_documents, args_list), total=num_process_nodes):
             pass
 
+    logger.info(f"[P{process_id}] Generating FAISS config from {output_dir}")
     generate_faiss_config(output_dir, embed_dim, np.dtype(np.float32))
 
 
 def distribute_embed_batch(args):
     pi, docs, batch_size, embedder_conf = args
+    logger.info(f"[P{pi}] Distributing embed batch of size {len(docs)}")
     embedder = distribute_initial_embedder(embedder_conf, pi)
     batch_embed = embedder.batch_encode(docs, batch_size=batch_size)
     return batch_embed
@@ -163,6 +185,7 @@ def distribute_embed_batch(args):
 def distribute_embedding_documents(config_path: str, num_process_nodes: int):
     embedder_conf, data_conf = read_embedding_conf(config_path)
 
+    logger.info("Preparing distributed embedding over documents")
     doc_files = glob.glob(f'{data_conf.input_dir}/{data_conf.doc_glob}')
     encode_batch_size = embedder_conf.encode_batch_size
     embed_dim = embedder_conf.mytryoshka_size
@@ -173,6 +196,7 @@ def distribute_embedding_documents(config_path: str, num_process_nodes: int):
     embed_path = os.path.join(output_dir, domain, embedder_name)
     if not os.path.exists(embed_path):
         os.makedirs(embed_path)
+    logger.info(f"Embedding output directory: {embed_path}")
 
     doc_files = glob.glob(f'{data_conf.input_dir}/{data_conf.doc_glob}')
     for doc_file in doc_files:
@@ -185,7 +209,7 @@ def distribute_embedding_documents(config_path: str, num_process_nodes: int):
 
             result = subprocess.run(['wc', '-l', doc_file], capture_output=True, text=True)
             num_docs = int(result.stdout.split()[0])
-            print(f"File {doc_file} has {num_docs} lines.")
+            logger.info(f"Processing file: {doc_file} (lines={num_docs})")
             process_batch_size = encode_batch_size * 100
             global_batch_size = process_batch_size * num_process_nodes
 
@@ -221,6 +245,7 @@ def distribute_embedding_documents(config_path: str, num_process_nodes: int):
                         doc_batch = []
                         doc_ids = []
 
+    logger.info(f"Generating FAISS config from {output_dir}")
     generate_faiss_config(output_dir, embed_dim, np.dtype(np.float32))
 
 
@@ -229,9 +254,41 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='embed_docs')
-    parser.add_argument('--config', type=str, default='doc_process/config/embedding_example.yaml', help='embedding config')
+    parser.add_argument('--config', type=str, default='doc_process/config/embedding/embedding_example.yaml', help='embedding config')
     parser.add_argument('--num_process_nodes', type=int, default=8, help='Number of GPUs')
+    parser.add_argument('--precomputed_embed_root', type=str, default='', help='If set, skip embedding and only generate FAISS cfg from this root')
     args = parser.parse_args()
 
-    # for documents
-    distribute_embedding_documents(args.config, args.num_process_nodes)
+    # set seeds per process for reproducibility
+    try:
+        import numpy as np
+    except Exception:
+        np = None
+    try:
+        import torch
+    except Exception:
+        torch = None
+
+    base_seed = 0
+    random.seed(base_seed)
+    if np is not None:
+        try:
+            np.random.seed(base_seed)
+        except Exception:
+            pass
+    if torch is not None:
+        try:
+            torch.manual_seed(base_seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(base_seed)
+        except Exception:
+            pass
+
+    # If user supplies precomputed embeddings, only generate FAISS cfg and exit
+    if isinstance(args.precomputed_embed_root, str) and len(args.precomputed_embed_root) > 0:
+        embedder_conf, data_conf = read_embedding_conf(args.config)
+        logger.info(f"Using precomputed embeddings at {args.precomputed_embed_root}, generating FAISS config only")
+        generate_faiss_config(args.precomputed_embed_root, embedder_conf.mytryoshka_size, np.dtype(np.float32))
+    else:
+        # for documents
+        distribute_embedding_documents(args.config, args.num_process_nodes)

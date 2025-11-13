@@ -9,6 +9,7 @@ LastEditTime: 2024-08-06 16:13:43
 
 import os, sys
 sys.path.append(os.getcwd())
+sys.path.append(os.getcwd()+'/InternEmbedding')
 
 import json
 import re
@@ -16,9 +17,10 @@ import math
 import time
 import random
 import logging
+import os
 from openai import OpenAI
 from typing import List
-from InternEmbedding.embedding.eval.metrics import matrix_cosine_similarity
+from InternEmbedding.embedding.eval.metrics import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +94,8 @@ def calc_similarity_matrix(qa_pairs, embedder, embedder_cfg, lang):
 
 def get_llm_response(question: str, model: str='internlm2-chat-20b', api_base: str='http://172.28.0.81:20241/v1'):
 
-    client = OpenAI(
-        api_key=random.choice("EMPTY"), base_url=api_base
-    )
+    api_key = os.environ.get('OPENAI_API_KEY', 'EMPTY')
+    client = OpenAI(api_key=api_key, base_url=api_base)
 
     error = None
     num_failures = 0
@@ -104,8 +105,8 @@ def get_llm_response(question: str, model: str='internlm2-chat-20b', api_base: s
                     model=model, 
                     messages=[{"role": "user", "content": question}], 
                     max_tokens=4096, 
-                    temperature=1.2, 
-                    top_p=0.1, 
+                    temperature=0.0, 
+                    top_p=1.0, 
                     n=1
                 )
             # usage = response.usage.completion_tokens

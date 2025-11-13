@@ -1,4 +1,4 @@
-domain: longqa_wiki
+domain: longqa_example
 datasets: assets/example_datasets/*_text_corpus.jsonl
 lang: en # en or zh
 save_dir: your_dataset_path
@@ -14,7 +14,7 @@ pipelines:
     chunk_size: 2048
     max_q: 5
   filter_questions:
-    - coreference_resoulution
+    - coreference_resolution
   generate_answers:
     type: one-by-one
     simplify_answer: true

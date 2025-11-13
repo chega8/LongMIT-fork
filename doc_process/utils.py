@@ -12,5 +12,11 @@ def read_jsonl_file(file_path: str):
 @contextmanager
 def memmap(*args, **kwargs):
     reference = np.memmap(*args, **kwargs)
-    yield reference
-    del reference
+    try:
+        yield reference
+    finally:
+        try:
+            reference.flush()
+        except Exception:
+            pass
+        del reference

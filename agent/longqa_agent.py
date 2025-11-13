@@ -40,6 +40,34 @@ class LongQAAgent(AgentFlow):
         self.prompts = importlib.import_module(f'agent.prompts.{self.cfg.domain}')
 
     def run(self):
+        # set seeds for reproducibility
+        try:
+            import numpy as np
+        except Exception:
+            np = None
+        try:
+            import torch
+        except Exception:
+            torch = None
+
+        seed = getattr(self.cfg, 'seed', 42)
+        try:
+            random.seed(seed)
+        except Exception:
+            pass
+        if np is not None:
+            try:
+                np.random.seed(seed)
+            except Exception:
+                pass
+        if torch is not None:
+            try:
+                torch.manual_seed(seed)
+                if hasattr(torch, 'cuda') and torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(seed)
+            except Exception:
+                pass
+
         self.embedder = initial_embedder(self.embedder_cfg)
         
         for jsonl_file in self.jsonl_files:
@@ -196,7 +224,7 @@ class LongQAAgent(AgentFlow):
             for chunk, qs in zip(chunks, chunk_questions):
                 chunk_qa_pairs = []
                 for q in qs:
-                    a = generate_anwer(q, chunk, self.cfg.lang, self.api_cfg.model_name, self.api_cfg.api_base, self.prompts.generate_answer_prompt)
+                    a = generate_anwer(chunk, q, self.cfg.lang, self.api_cfg.model_name, self.api_cfg.api_base, self.prompts.generate_answer_prompt)
                     if self.generatea_cfg.score_qa_pairs:
                         raise NotImplementedError
                     

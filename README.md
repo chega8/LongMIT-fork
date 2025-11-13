@@ -55,7 +55,7 @@ def download_longmit_datasets(dataset_name: str, save_dir: str):
 
 ### 🌏 Environments
 ```shell
-git https://github.com/WowCZ/LongMIT.git
+git clone https://github.com/WowCZ/LongMIT.git
 cd LongMIT
 git clone https://github.com/WowCZ/InternEmbedding.git
 pip install -r requirements.txt
@@ -66,7 +66,9 @@ pip install -r requirements.txt
 #### 1. Organize the private text corpus with embedding models
 ##### Step-1: Embedding source text corpus:
 ```shell
-python doc_process/embed_doc.py --config doc_process/config/embedding/embedding_example.yaml --num_process_nodes 8
+python doc_process/embed_docs.py --config doc_process/config/embedding/embedding_example.yaml --num_process_nodes 8
+# If you already have precomputed embeddings (root should contain <domain>/<embedder_name>/*.npy), you can only generate FAISS cfg:
+python doc_process/embed_docs.py --config doc_process/config/embedding/embedding_example.yaml --precomputed_embed_root /abs/path/to/your_embeds_root
 ```
 *  The config of text corpus has four components as following:
 ```yaml
@@ -88,13 +90,10 @@ where *domain* is the domain name of your custom text corpus, *input_dir* is the
 ##### Step-2: Build document graph with approximated knn
 ```shell
 python doc_process/build_doc_graph.py --command train_index --config doc_process/config/faiss/example_knn.yaml --xb example
-wait
-
-python doc_process/build_doc_graph.py --command index_shard --config doc_process/config/faiss/example_knn.yaml --xb example 
-wait
-
+python doc_process/build_doc_graph.py --command index_shard --config doc_process/config/faiss/example_knn.yaml --xb example
 python doc_process/build_doc_graph.py --command search --config doc_process/config/faiss/example_knn.yaml --xb example
-wait
+# If you already have KNN outputs prepared externally, skip FAISS steps and continue:
+python doc_process/build_doc_graph.py --command search --config doc_process/config/faiss/example_knn.yaml --xb example --precomputed_knn_dir /abs/path/to/your_knn_dir
 ```
 
 ##### Step-3: Traverse document graph

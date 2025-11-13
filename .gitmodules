@@ -1,0 +1,3 @@
+[submodule "InternEmbedding"]
+	path = InternEmbedding
+	url = https://github.com/WowCZ/InternEmbedding.git

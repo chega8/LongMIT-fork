@@ -119,6 +119,13 @@ if __name__ == "__main__":
         help="config yaml with the dataset specs",
     )
     add_group_args(
+        group,
+        "--precomputed_knn_dir",
+        type=str,
+        default=None,
+        help="If provided, skip FAISS steps (train/index/search) and assume KNN files exist under this directory.",
+    )
+    add_group_args(
         group, "--nt", type=int, default=96, help="nb search threads"
     )
     add_group_args(
@@ -218,4 +225,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     print("args:", args)
     faiss.omp_set_num_threads(args.nt)
-    process_options_and_run_jobs(args=args)
+    # If user points to an existing KNN directory, we bypass FAISS job launching.
+    if getattr(args, 'precomputed_knn_dir', None):
+        print(f"Using precomputed KNN directory: {args.precomputed_knn_dir}. Skipping FAISS build/search.")
+    else:
+        process_options_and_run_jobs(args=args)

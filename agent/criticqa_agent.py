@@ -18,7 +18,7 @@ import subprocess
 from glob import glob
 from agent.utils import *
 from agent.base_agent import AgentFlow
-from iclm.data_process import read_jsonl_file
+from doc_process.utils import read_jsonl_file
 
 
 class CriticQAAgent(AgentFlow):

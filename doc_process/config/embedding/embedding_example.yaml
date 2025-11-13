@@ -19,5 +19,5 @@ embedder: # no change
 data:
   domain: wiki # source domain of text corpus
   input_dir: assets/example_datasets # path of original text files
-  doc_glob: "*_text_corpus.jsonl" # matched format of text files
+  doc_glob: "*custom_text_corpus.jsonl" # matched format of text files
   embed_output_dir: your_local_path # temporary folder to save embedding files

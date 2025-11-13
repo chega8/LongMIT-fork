@@ -22,7 +22,7 @@ mteb==1.1.1
 ninja==1.11.1.1
 nltk==3.8.1
 numpy==1.23.0
-omegaconf
+omegaconf==2.3.0
 pandas==2.0.3
 peft==0.7.1
 Pillow==9.3.0
@@ -40,3 +40,5 @@ tqdm==4.66.1
 transformers==4.36.2
 uvicorn==0.27.1
 wandb==0.16.2
+openai>=1.0.0
+submitit>=1.5.0
